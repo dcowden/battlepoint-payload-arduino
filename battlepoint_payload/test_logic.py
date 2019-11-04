@@ -1,6 +1,6 @@
 nominal_speed = [ 100, 180, 250, -100, -255 ]
 
-gain = 0.1
+gain = 0.2
 
 #(left,right)
 sensor_inputs = [ 

@@ -2,38 +2,54 @@
 #include <Wire.h>
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
+#include "FastLED.h"
 
-// 0X3C+SA0 - 0x3C or 0x3D
-#define I2C_ADDRESS 0x3C
 
-// Define proper RST_PIN if required.
+
 #define RST_PIN -1
 #define DEBUG 1
-SSD1306AsciiWire oled;
+
+#define I2C_ADDRESS 0x3C
+
+//pin definitions
+#define ROTARY_BTN_PIN 2
+#define LED_DATA_PIN 3
+#define BTN_FWD_1 4
 #define LEFT_MOTOR_ENABLE 5
 #define LEFT_MOTOR_A 6
 #define LEFT_MOTOR_B 7
 #define RIGHT_MOTOR_A 8
 #define RIGHT_MOTOR_B 9
 #define RIGHT_MOTOR_ENABLE 10
-#define WIRE_SENSOR_LEFT A1
-#define WIRE_SENSOR_RIGHT A0
-
-#define BTN_FWD_1 4
 #define BTN_FWD_2 11
 #define BTN_FWD_3 12
 #define BTN_BWD 13
+#define WIRE_SENSOR_RIGHT A0
+#define WIRE_SENSOR_LEFT A1
+//#define ENCODER_PIN_A A2
+//#define ENCODER_PIN_B A3
+//SDA=A5
+//SDC=A4
 
-#define FWD_SPEED_BASE_1X 100
-#define FWD_SPEED_BASE_2X 180
-#define FWD_SPEED_BASE_3X 250
+
+
+
+//app constants
+#define FWD_SPEED_BASE_1X 200
+#define FWD_SPEED_BASE_2X 150
 #define BWD_SPEED_BASE -100
 
-#define ERROR_GAIN 0.1
-#define NUM_ADC_SAMPLES 20
+#define ERROR_GAIN 0.5
+#define NUM_ADC_SAMPLES 10
 #define MAX_SPEED 255
 #define MIN_SPEED -255
+#define MAX_SENSOR 775
 
+#define NUM_LEDS 13
+
+
+SSD1306AsciiWire oled;
+CRGB leds[NUM_LEDS];
 
 struct Pose {
   byte fwd_btn_1;
@@ -56,21 +72,26 @@ struct GameData {
 GameData gameData = {0};
 
 void setup() {
+  Serial.begin(38400);
+  setupOLED();
+  setupLEDs();
+  setupPins();
+}
+
+void setupLEDs(){
+  FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(leds, NUM_LEDS);
+}
+
+void setupOLED(){
   Wire.begin();
   Wire.setClock(400000L);  
-
-#if RST_PIN >= 0
-  oled.begin(&Adafruit128x64, I2C_ADDRESS, RST_PIN);
-#else // RST_PIN >= 0
   oled.begin(&Adafruit128x64, I2C_ADDRESS);
   oled.displayRemap(true);
-#endif // RST_PIN >= 0
   oled.setFont(Adafruit5x7);
   oled.clear();
   oled.println("BattlePoint v1.0"); 
   oled.println("Starting..."); 
-  Serial.begin(38400);
-  setupPins();
+  
 }
 
 void startGame(){
@@ -98,11 +119,11 @@ void loop() {
   Pose p = readPose();
   PayloadCommand pc = computePayloadCommand(p);
   handleCommand(pc);
-  updateDisplay(p,pc);
   #if DEBUG
   updateSerial(p,pc);
   #endif
   updateDisplay(p,pc);
+  updateLEDs(p,pc);
 }
 
 Pose readPose(){
@@ -119,6 +140,13 @@ Pose readPose(){
 int readButton(int buttonPin){
   int i = digitalRead(buttonPin);
   return i == 0;
+}
+
+void updateLEDs(Pose p, PayloadCommand pc){
+  for ( int i=0;i<NUM_LEDS;i++){
+      leds[i] = CRGB::Yellow;
+  }
+  FastLED.show();
 }
 
 void updateDisplay(Pose p, PayloadCommand pc){
@@ -189,14 +217,9 @@ PayloadCommand computePayloadCommand(Pose p ){
   int sensor_delta = p.left_sensor - p.right_sensor;
   int correction = (float)sensor_delta * ERROR_GAIN;
 
-  if ( nominal_speed > 0 ){
-
-    pc.leftSpeed = min(nominal_speed - correction,MAX_SPEED);
-    pc.rightSpeed = min(nominal_speed + correction,MAX_SPEED);
-  }
-  else if ( nominal_speed < 0 ){
-    pc.leftSpeed = max(nominal_speed - correction,MIN_SPEED);
-    pc.rightSpeed = max(nominal_speed + correction,MIN_SPEED);
+  if ( nominal_speed != 0 ){
+    pc.leftSpeed = constrain(nominal_speed - correction,MIN_SPEED,MAX_SPEED);
+    pc.rightSpeed = constrain(nominal_speed + correction,MIN_SPEED,MAX_SPEED);
   }
   else{
     pc.leftSpeed = 0;
@@ -212,9 +235,11 @@ void handleCommand(PayloadCommand mc ){
 }
 
 int computeNominalSpeed(Pose p ){
+  //max speed must leave some room for correction headroom
+  int max_correction = MAX_SENSOR*ERROR_GAIN /2.0;
   int num_fwd = num_fwd_pressed(p);
   if ( num_fwd == 3 ){
-    return FWD_SPEED_BASE_3X;
+    return MAX_SPEED - max_correction;
   }  
   else if ( num_fwd == 2 ){
     return FWD_SPEED_BASE_2X;
@@ -264,4 +289,5 @@ int readADCPinPeak(int pin, int samples ){
   }
   return maxv;
 }
+
 
