@@ -3,7 +3,7 @@
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
 #include "FastLED.h"
-
+#include "LedMeter.h"
 
 
 #define RST_PIN -1
@@ -50,6 +50,8 @@
 
 SSD1306AsciiWire oled;
 CRGB leds[NUM_LEDS];
+LedRange meterRanges [1] = {  { 0, 12 } } ;
+LedMeter mainMeter = LedMeter(leds,meterRanges,2,CRGB::Blue,CRGB::Black);
 
 struct Pose {
   byte fwd_btn_1;
@@ -79,6 +81,7 @@ void setup() {
 }
 
 void setupLEDs(){
+  mainMeter.setMaxValue(100);
   FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(leds, NUM_LEDS);
 }
 
@@ -86,7 +89,9 @@ void setupOLED(){
   Wire.begin();
   Wire.setClock(400000L);  
   oled.begin(&Adafruit128x64, I2C_ADDRESS);
-  oled.displayRemap(true);
+
+  //invert display
+  oled.displayRemap(false);
   oled.setFont(Adafruit5x7);
   oled.clear();
   oled.println("BattlePoint v1.0"); 
@@ -143,9 +148,7 @@ int readButton(int buttonPin){
 }
 
 void updateLEDs(Pose p, PayloadCommand pc){
-  for ( int i=0;i<NUM_LEDS;i++){
-      leds[i] = CRGB::Yellow;
-  }
+  mainMeter.update();
   FastLED.show();
 }
 
