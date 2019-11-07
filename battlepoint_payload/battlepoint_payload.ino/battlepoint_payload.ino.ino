@@ -36,15 +36,19 @@
 
 //app constants
 #define FWD_SPEED_BASE_1X 200
-#define FWD_SPEED_BASE_2X 150
+#define FWD_SPEED_BASE_2X 200
 #define BWD_SPEED_BASE -100
 
-#define ERROR_GAIN 0.5
+#define P_GAIN 0.5
+#define D_GAIN 5.0
+
+
 #define NUM_ADC_SAMPLES 10
 #define MAX_SPEED 255
 #define MIN_SPEED -255
 #define MAX_SENSOR 775
-
+#define SENSOR_CLOSE 150
+#define SLOW_SPEED 100
 #define NUM_LEDS 13
 
 
@@ -52,6 +56,7 @@ SSD1306AsciiWire oled;
 CRGB leds[NUM_LEDS];
 LedRange meterRanges [1] = {  { 0, 12 } } ;
 LedMeter mainMeter = LedMeter(leds,meterRanges,2,CRGB::Blue,CRGB::Black);
+
 
 struct Pose {
   byte fwd_btn_1;
@@ -213,21 +218,32 @@ void updateSerial(Pose p, PayloadCommand pc){
    Serial.println(SPACE);     
 }
 
+int lastError = 0;
+
 PayloadCommand computePayloadCommand(Pose p ){
   PayloadCommand pc;
+  
+  int nominal_speed = computeNominalSpeed(p);;
 
-  int nominal_speed = computeNominalSpeed(p);
-  int sensor_delta = p.left_sensor - p.right_sensor;
-  int correction = (float)sensor_delta * ERROR_GAIN;
-
-  if ( nominal_speed != 0 ){
-    pc.leftSpeed = constrain(nominal_speed - correction,MIN_SPEED,MAX_SPEED);
-    pc.rightSpeed = constrain(nominal_speed + correction,MIN_SPEED,MAX_SPEED);
+  if (nominal_speed == 0 ){
+    pc.leftSpeed = 0;
+    pc.rightSpeed = 0;        
   }
   else{
-    pc.leftSpeed = 0;
-    pc.rightSpeed = 0;
+    int error = p.left_sensor - p.right_sensor;
+    int d_err = error - lastError;
+    int correction = (float)error * P_GAIN + (float)d_err * D_GAIN ;
+    lastError = error;
+  
+    if ( p.left_sensor > SENSOR_CLOSE || p.right_sensor > SENSOR_CLOSE ){
+       nominal_speed = SLOW_SPEED;
+    }
+    pc.leftSpeed = constrain(nominal_speed - correction,MIN_SPEED,MAX_SPEED);
+    pc.rightSpeed = constrain(nominal_speed + correction,MIN_SPEED,MAX_SPEED);
+
+    
   }
+  
   
   return pc;
 }
@@ -238,11 +254,10 @@ void handleCommand(PayloadCommand mc ){
 }
 
 int computeNominalSpeed(Pose p ){
-  //max speed must leave some room for correction headroom
-  int max_correction = MAX_SENSOR*ERROR_GAIN /2.0;
+
   int num_fwd = num_fwd_pressed(p);
   if ( num_fwd == 3 ){
-    return MAX_SPEED - max_correction;
+    return MAX_SPEED ;
   }  
   else if ( num_fwd == 2 ){
     return FWD_SPEED_BASE_2X;
